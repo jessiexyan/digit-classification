@@ -1,11 +1,12 @@
 """Command-line interface for the digit classification application."""
 
+import json
 from pathlib import Path
 
 import lightning as L
 import torch
 import typer
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 from digit_classification.data import (
     CLASS_TO_LABEL,
@@ -44,6 +45,16 @@ def train(
 ) -> None:
     """Train the digit classifier on CPU."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    run_config = {
+        "accelerator": "cpu",
+        "batch_size": batch_size,
+        "epochs": epochs,
+        "seed": seed,
+    }
+    (output_dir / "run_config.json").write_text(
+        json.dumps(run_config, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     L.seed_everything(seed, workers=True)
     data_module = DigitDataModule(
         data_dir=data_dir,
@@ -59,13 +70,19 @@ def train(
         save_top_k=1,
         save_last=True,
     )
+    early_stopping_callback = EarlyStopping(
+        monitor="val_loss",
+        mode="min",
+        patience=3,
+        min_delta=1e-3,
+    )
     trainer = L.Trainer(
         default_root_dir=output_dir,
         accelerator="cpu",
         devices=1,
         max_epochs=epochs,
         deterministic=True,
-        callbacks=[checkpoint_callback],
+        callbacks=[checkpoint_callback, early_stopping_callback],
     )
     trainer.fit(model, datamodule=data_module)
     typer.echo(f"Best checkpoint: {checkpoint_callback.best_model_path}")
@@ -77,13 +94,18 @@ def evaluate(
         ..., "--checkpoint-path", help="Trained Lightning checkpoint."
     ),
     data_dir: Path = typer.Option(..., "--data-dir", help="MNIST data directory."),
+    seed: int = typer.Option(
+        DEFAULT_SEED,
+        "--seed",
+        help="Seed used to construct the training and evaluation splits.",
+    ),
 ) -> None:
     """Evaluate a checkpoint on the held-out dataset."""
     model = DigitClassifier.load_from_checkpoint(
         checkpoint_path,
         map_location="cpu",
     )
-    data_module = DigitDataModule(data_dir=data_dir)
+    data_module = DigitDataModule(data_dir=data_dir, seed=seed)
     data_module.prepare_data()
     data_module.setup(stage="test")
     report = evaluate_model(model, data_module.test_dataloader())

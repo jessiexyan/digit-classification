@@ -70,7 +70,10 @@ digit-classification train \
 ```
 
 The best validation-loss checkpoint and `last.ckpt` are written under
-`outputs/checkpoints/`.
+`outputs/checkpoints/`. Training stops early when validation loss fails to
+improve by at least `0.001` for three consecutive epochs. The output directory
+also contains `run_config.json`, recording the CPU accelerator, epoch limit,
+batch size, and seed used for the run.
 
 Evaluate the best checkpoint on the reproducible held-out split. Replace the
 example filename with the path printed by `train`; do not type angle-bracket
@@ -79,8 +82,12 @@ placeholders literally in a shell.
 ```bash
 digit-classification evaluate \
   --checkpoint-path 'outputs/checkpoints/digit-classifier-epoch=XX-val_loss=X.XXXX.ckpt' \
-  --data-dir data
+  --data-dir data \
+  --seed 42
 ```
+
+Use the same seed supplied to `train`; it determines which original MNIST
+indices belong to the held-out evaluation split.
 
 Predict an external image:
 
