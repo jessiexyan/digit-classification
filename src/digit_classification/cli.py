@@ -17,6 +17,7 @@ from digit_classification.data import (
 )
 from digit_classification.evaluation import evaluate_model
 from digit_classification.model import DigitClassifier
+from digit_classification.progress import TrainingProgressCallback
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -76,16 +77,35 @@ def train(
         patience=3,
         min_delta=1e-3,
     )
+    progress_callback = TrainingProgressCallback(output_dir / "progress.json")
     trainer = L.Trainer(
         default_root_dir=output_dir,
         accelerator="cpu",
         devices=1,
         max_epochs=epochs,
         deterministic=True,
-        callbacks=[checkpoint_callback, early_stopping_callback],
+        callbacks=[
+            checkpoint_callback,
+            early_stopping_callback,
+            progress_callback,
+        ],
     )
     trainer.fit(model, datamodule=data_module)
     typer.echo(f"Best checkpoint: {checkpoint_callback.best_model_path}")
+
+
+@app.command()
+def check_progress(
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", help="Training output directory."
+    ),
+) -> None:
+    """Print the latest machine-readable training progress snapshot."""
+    progress_path = output_dir / "progress.json"
+    if not progress_path.is_file():
+        typer.echo(f"No training progress found at {progress_path}.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(progress_path.read_text(encoding="utf-8").rstrip())
 
 
 @app.command()

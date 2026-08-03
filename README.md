@@ -75,6 +75,19 @@ improve by at least `0.001` for three consecutive epochs. The output directory
 also contains `run_config.json`, recording the CPU accelerator, epoch limit,
 batch size, and seed used for the run.
 
+While training is running, a Lightning callback atomically updates
+`outputs/progress.json`. Check it from another terminal without connecting to
+the Trainer process:
+
+```bash
+digit-classification check-progress --output-dir outputs
+```
+
+The JSON snapshot reports status, completed and maximum epochs, fractional
+progress, elapsed and estimated remaining seconds, current train/validation
+metrics, and any terminal error. Status is one of `running`, `completed`,
+`stopped_early`, or `failed`.
+
 Evaluate the best checkpoint on the reproducible held-out split. Replace the
 example filename with the path printed by `train`; do not type angle-bracket
 placeholders literally in a shell.
