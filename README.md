@@ -69,6 +69,18 @@ digit-classification train \
   --seed 42
 ```
 
+Resume an interrupted run while preserving optimizer, scheduler, epoch, and
+callback state:
+
+```bash
+digit-classification train \
+  --data-dir data \
+  --output-dir outputs \
+  --epochs 20 \
+  --seed 42 \
+  --resume-from outputs/checkpoints/last.ckpt
+```
+
 The best validation-loss checkpoint and `last.ckpt` are written under
 `outputs/checkpoints/`. Training stops early when validation loss fails to
 improve by at least `0.001` for three consecutive epochs. The output directory
@@ -102,12 +114,31 @@ digit-classification evaluate \
 Use the same seed supplied to `train`; it determines which original MNIST
 indices belong to the held-out evaluation split.
 
+Inspect the exact deterministic split before training or evaluation:
+
+```bash
+digit-classification inspect-data --data-dir data --seed 42
+```
+
+This prints class counts, split sizes, overlap status, and a SHA-256 fingerprint
+of the ordered original MNIST indices. Matching fingerprints prove that two
+runs used the same split.
+
 Predict an external image:
 
 ```bash
 digit-classification predict \
   --checkpoint-path 'outputs/checkpoints/digit-classifier-epoch=XX-val_loss=X.XXXX.ckpt' \
   --input-path path/to/digit.png
+```
+
+Add `--json` for machine-readable prediction output:
+
+```bash
+digit-classification predict \
+  --checkpoint-path outputs/checkpoints/model.ckpt \
+  --input-path path/to/digit.png \
+  --json
 ```
 
 Inference converts the image to grayscale, corrects EXIF orientation, preserves

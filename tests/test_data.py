@@ -15,7 +15,9 @@ from digit_classification.data import (
     IndexedDigitDataset,
     curate_indices,
     label_counts,
+    inspect_mnist,
     load_image_tensor,
+    split_fingerprint,
     split_curated_indices,
 )
 
@@ -85,6 +87,16 @@ def test_split_is_reproducible() -> None:
     assert split_curated_indices(targets, curated, seed=17) == split_curated_indices(
         targets, curated, seed=17
     )
+
+
+def test_split_fingerprint_is_stable_and_sensitive_to_indices() -> None:
+    first = DatasetSplits(train=(1, 2), validation=(3,), evaluation=(4,))
+    same = DatasetSplits(train=(1, 2), validation=(3,), evaluation=(4,))
+    different = DatasetSplits(train=(2, 1), validation=(3,), evaluation=(4,))
+
+    assert split_fingerprint(first) == split_fingerprint(same)
+    assert split_fingerprint(first) != split_fingerprint(different)
+    assert len(split_fingerprint(first)) == 64
 
 
 @pytest.mark.parametrize(
@@ -170,6 +182,24 @@ def test_data_module_builds_expected_loaders(monkeypatch, tmp_path: Path) -> Non
     assert len(module.val_dataloader().dataset) == 500
     assert len(module.test_dataloader().dataset) == 1_000
     assert module.predict_dataloader().dataset is module.test_dataloader().dataset
+
+
+def test_inspect_mnist_reports_counts_overlap_and_fingerprint(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(data_module, "MNIST", FakeMNIST)
+
+    summary = inspect_mnist(tmp_path, seed=17)
+
+    assert summary["sizes"] == {
+        "curated": 5_000,
+        "evaluation": 1_000,
+        "train": 3_500,
+        "validation": 500,
+    }
+    assert summary["counts"]["curated"] == {"0": 1_200, "5": 300, "8": 3_500}
+    assert summary["has_overlap"] is False
+    assert len(summary["fingerprint"]) == 64
 
 
 def test_data_module_requires_setup_before_loader(tmp_path: Path) -> None:

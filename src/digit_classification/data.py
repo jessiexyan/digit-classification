@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import random
+import hashlib
+import json
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -123,6 +125,53 @@ def label_counts(targets: Sequence[Any], indices: Sequence[int]) -> Counter[int]
     """Count original digit labels at a collection of dataset indices."""
     labels = _labels_as_ints(targets)
     return Counter(labels[index] for index in indices)
+
+
+def split_fingerprint(splits: DatasetSplits) -> str:
+    """Return a stable SHA-256 fingerprint for the exact dataset split indices."""
+    payload = {
+        "evaluation": splits.evaluation,
+        "train": splits.train,
+        "validation": splits.validation,
+    }
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def inspect_mnist(data_dir: Path, *, seed: int = DEFAULT_SEED) -> dict[str, Any]:
+    """Describe and fingerprint the reproducibly curated MNIST dataset."""
+    dataset = MNIST(root=str(data_dir), train=True, download=False)
+    curated = curate_indices(dataset.targets, seed=seed)
+    splits = split_curated_indices(dataset.targets, curated, seed=seed)
+
+    def counts(indices: Sequence[int]) -> dict[str, int]:
+        values = label_counts(dataset.targets, indices)
+        return {str(digit): values[digit] for digit in DIGITS}
+
+    train = set(splits.train)
+    validation = set(splits.validation)
+    evaluation = set(splits.evaluation)
+    return {
+        "counts": {
+            "curated": counts(curated),
+            "evaluation": counts(splits.evaluation),
+            "train": counts(splits.train),
+            "validation": counts(splits.validation),
+        },
+        "fingerprint": split_fingerprint(splits),
+        "has_overlap": not (
+            train.isdisjoint(validation)
+            and train.isdisjoint(evaluation)
+            and validation.isdisjoint(evaluation)
+        ),
+        "seed": seed,
+        "sizes": {
+            "curated": len(curated),
+            "evaluation": len(splits.evaluation),
+            "train": len(splits.train),
+            "validation": len(splits.validation),
+        },
+    }
 
 
 class IndexedDigitDataset(Dataset):

@@ -84,6 +84,32 @@ def test_predict_prints_digit_and_all_probabilities(
     assert "8: 0.8000" in result.stdout
 
 
+def test_predict_can_print_json(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        cli.DigitClassifier,
+        "load_from_checkpoint",
+        lambda *args, **kwargs: FixedPredictionModel(),
+    )
+    monkeypatch.setattr(cli, "load_image_tensor", lambda path: torch.zeros(1, 28, 28))
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "predict",
+            "--checkpoint-path",
+            str(tmp_path / "model.ckpt"),
+            "--input-path",
+            str(tmp_path / "digit.png"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["predicted_digit"] == 8
+    assert payload["probabilities"] == {"0": 0.05, "5": 0.15, "8": 0.8}
+
+
 def test_evaluate_loads_data_and_prints_report(monkeypatch, tmp_path: Path) -> None:
     model = object()
     monkeypatch.setattr(
@@ -154,8 +180,8 @@ def test_train_configures_cpu_trainer_and_reports_checkpoint(
         def __init__(self, **kwargs) -> None:
             calls["trainer_options"] = kwargs
 
-        def fit(self, model, datamodule) -> None:
-            calls["fit"] = (model, datamodule)
+        def fit(self, model, datamodule, ckpt_path) -> None:
+            calls["fit"] = (model, datamodule, ckpt_path)
 
     class FakeDataModule:
         def __init__(self, **kwargs) -> None:
@@ -184,6 +210,8 @@ def test_train_configures_cpu_trainer_and_reports_checkpoint(
             "16",
             "--seed",
             "9",
+            "--resume-from",
+            str(tmp_path / "resume.ckpt"),
         ],
     )
 
@@ -203,8 +231,10 @@ def test_train_configures_cpu_trainer_and_reports_checkpoint(
         "accelerator": "cpu",
         "batch_size": 16,
         "epochs": 3,
+        "resume_from": str(tmp_path / "resume.ckpt"),
         "seed": 9,
     }
+    assert calls["fit"][2] == tmp_path / "resume.ckpt"
     assert "Best checkpoint: /tmp/best.ckpt" in result.stdout
 
 
@@ -232,3 +262,27 @@ def test_check_progress_reports_missing_snapshot(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "No training progress found" in result.stderr
+
+
+def test_inspect_data_prints_json(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        cli,
+        "inspect_mnist",
+        lambda data_dir, seed: {
+            "fingerprint": "abc123",
+            "has_overlap": False,
+            "seed": seed,
+        },
+    )
+
+    result = runner.invoke(
+        cli.app,
+        ["inspect-data", "--data-dir", str(tmp_path), "--seed", "9"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "fingerprint": "abc123",
+        "has_overlap": False,
+        "seed": 9,
+    }

@@ -13,6 +13,7 @@ from digit_classification.data import (
     DEFAULT_SEED,
     DigitDataModule,
     download_mnist,
+    inspect_mnist,
     load_image_tensor,
 )
 from digit_classification.evaluation import evaluate_model
@@ -43,6 +44,11 @@ def train(
     epochs: int = typer.Option(20, "--epochs", min=1, max=20),
     batch_size: int = typer.Option(64, "--batch-size", min=1),
     seed: int = typer.Option(DEFAULT_SEED, "--seed"),
+    resume_from: Path | None = typer.Option(
+        None,
+        "--resume-from",
+        help="Lightning checkpoint from which to resume complete training state.",
+    ),
 ) -> None:
     """Train the digit classifier on CPU."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,6 +56,7 @@ def train(
         "accelerator": "cpu",
         "batch_size": batch_size,
         "epochs": epochs,
+        "resume_from": None if resume_from is None else str(resume_from),
         "seed": seed,
     }
     (output_dir / "run_config.json").write_text(
@@ -90,7 +97,7 @@ def train(
             progress_callback,
         ],
     )
-    trainer.fit(model, datamodule=data_module)
+    trainer.fit(model, datamodule=data_module, ckpt_path=resume_from)
     typer.echo(f"Best checkpoint: {checkpoint_callback.best_model_path}")
 
 
@@ -106,6 +113,15 @@ def check_progress(
         typer.echo(f"No training progress found at {progress_path}.", err=True)
         raise typer.Exit(code=1)
     typer.echo(progress_path.read_text(encoding="utf-8").rstrip())
+
+
+@app.command()
+def inspect_data(
+    data_dir: Path = typer.Option(..., "--data-dir", help="MNIST data directory."),
+    seed: int = typer.Option(DEFAULT_SEED, "--seed"),
+) -> None:
+    """Print class counts, split sizes, overlap status, and a split fingerprint."""
+    typer.echo(json.dumps(inspect_mnist(data_dir, seed=seed), indent=2, sort_keys=True))
 
 
 @app.command()
@@ -140,6 +156,9 @@ def predict(
     input_path: Path = typer.Option(
         ..., "--input-path", help="Image containing a handwritten digit."
     ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Print machine-readable JSON output."
+    ),
 ) -> None:
     """Predict whether an image contains a 0, 5, or 8."""
     model = DigitClassifier.load_from_checkpoint(
@@ -152,6 +171,17 @@ def predict(
         probabilities = model.predict_step(image)[0].cpu()
 
     predicted_class = int(probabilities.argmax())
+    prediction = {
+        "predicted_digit": CLASS_TO_LABEL[predicted_class],
+        "probabilities": {
+            str(CLASS_TO_LABEL[class_index]): round(probability, 6)
+            for class_index, probability in enumerate(probabilities.tolist())
+        },
+    }
+    if as_json:
+        typer.echo(json.dumps(prediction, indent=2, sort_keys=True))
+        return
+
     typer.echo(f"Predicted digit: {CLASS_TO_LABEL[predicted_class]}")
     typer.echo("Probabilities:")
     for class_index, probability in enumerate(probabilities.tolist()):
