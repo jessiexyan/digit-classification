@@ -81,6 +81,10 @@ digit-classification train \
   --resume-from outputs/checkpoints/last.ckpt
 ```
 
+`--epochs` is the total epoch limit for the run, not the number of additional
+epochs. For example, resuming an epoch-2 checkpoint with `--epochs 3` trains one
+more epoch.
+
 The best validation-loss checkpoint and `last.ckpt` are written under
 `outputs/checkpoints/`. Training stops early when validation loss fails to
 improve by at least `0.001` for three consecutive epochs. The output directory
@@ -149,17 +153,19 @@ probabilities for all three classes.
 
 ## Example evaluation
 
-A two-epoch CPU run with seed 42 produced the following held-out results. These
-numbers demonstrate the workflow rather than establish a performance target.
+A CPU run resumed from two epochs to three total epochs with seed 42 produced
+the following held-out results. These numbers demonstrate the workflow rather
+than establish a performance target.
 
 | Metric | Digit 0 | Digit 5 | Digit 8 | Macro average |
 |---|---:|---:|---:|---:|
-| Precision | 0.9827 | 0.6744 | 0.9854 | 0.8808 |
-| Recall | 0.9458 | 0.9667 | 0.9614 | 0.9580 |
-| F1 | 0.9639 | 0.7945 | 0.9732 | 0.9106 |
+| Precision | 0.9832 | 0.9344 | 0.9900 | 0.9692 |
+| Recall | 0.9750 | 0.9500 | 0.9914 | 0.9721 |
+| F1 | 0.9791 | 0.9421 | 0.9907 | 0.9706 |
 
-Overall accuracy was `0.9580`. The high recall and lower precision for digit
-`5` are consistent with the deliberate class weighting.
+Overall accuracy and weighted F1 were both `0.9850`. Digit `5` remained the
+most difficult class because it had only 210 training examples, but weighting
+helped it reach `0.9500` recall.
 
 ## Tests
 
@@ -173,10 +179,13 @@ pytest
 pytest --cov=digit_classification --cov-report=term-missing
 ```
 
+The current suite contains 36 passing tests with 98% statement coverage.
+
 ## Project structure
 
 ```text
 digit-classification/
+├── .gitignore
 ├── README.md
 ├── pyproject.toml
 ├── src/digit_classification/
@@ -184,10 +193,13 @@ digit-classification/
 │   ├── cli.py
 │   ├── data.py
 │   ├── evaluation.py
-│   └── model.py
+│   ├── model.py
+│   └── progress.py
 └── tests/
+    ├── __init__.py
     ├── test_cli.py
     ├── test_data.py
     ├── test_evaluation.py
-    └── test_model.py
+    ├── test_model.py
+    └── test_progress.py
 ```
