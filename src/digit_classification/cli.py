@@ -1,0 +1,120 @@
+"""Command-line interface for the digit classification application."""
+
+from pathlib import Path
+
+import lightning as L
+import torch
+import typer
+from lightning.pytorch.callbacks import ModelCheckpoint
+
+from digit_classification.data import (
+    CLASS_TO_LABEL,
+    DEFAULT_SEED,
+    DigitDataModule,
+    download_mnist,
+    load_image_tensor,
+)
+from digit_classification.evaluation import evaluate_model
+from digit_classification.model import DigitClassifier
+
+app = typer.Typer(
+    no_args_is_help=True,
+    help="Train and use a classifier for the MNIST digits 0, 5, and 8.",
+)
+
+
+@app.command()
+def download_data(
+    data_dir: Path = typer.Option(..., "--data-dir", help="MNIST data directory."),
+) -> None:
+    """Download the MNIST training dataset."""
+    download_mnist(data_dir)
+    typer.echo(f"MNIST training data is available in {data_dir}.")
+
+
+@app.command()
+def train(
+    data_dir: Path = typer.Option(..., "--data-dir", help="MNIST data directory."),
+    output_dir: Path = typer.Option(
+        ..., "--output-dir", help="Directory for checkpoints and logs."
+    ),
+    epochs: int = typer.Option(20, "--epochs", min=1, max=20),
+    batch_size: int = typer.Option(64, "--batch-size", min=1),
+    seed: int = typer.Option(DEFAULT_SEED, "--seed"),
+) -> None:
+    """Train the digit classifier on CPU."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    L.seed_everything(seed, workers=True)
+    data_module = DigitDataModule(
+        data_dir=data_dir,
+        batch_size=batch_size,
+        seed=seed,
+    )
+    model = DigitClassifier()
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=output_dir / "checkpoints",
+        filename="digit-classifier-{epoch:02d}-{val_loss:.4f}",
+        monitor="val_loss",
+        mode="min",
+        save_top_k=1,
+        save_last=True,
+    )
+    trainer = L.Trainer(
+        default_root_dir=output_dir,
+        accelerator="cpu",
+        devices=1,
+        max_epochs=epochs,
+        deterministic=True,
+        callbacks=[checkpoint_callback],
+    )
+    trainer.fit(model, datamodule=data_module)
+    typer.echo(f"Best checkpoint: {checkpoint_callback.best_model_path}")
+
+
+@app.command()
+def evaluate(
+    checkpoint_path: Path = typer.Option(
+        ..., "--checkpoint-path", help="Trained Lightning checkpoint."
+    ),
+    data_dir: Path = typer.Option(..., "--data-dir", help="MNIST data directory."),
+) -> None:
+    """Evaluate a checkpoint on the held-out dataset."""
+    model = DigitClassifier.load_from_checkpoint(
+        checkpoint_path,
+        map_location="cpu",
+    )
+    data_module = DigitDataModule(data_dir=data_dir)
+    data_module.prepare_data()
+    data_module.setup(stage="test")
+    report = evaluate_model(model, data_module.test_dataloader())
+    typer.echo(report)
+
+
+@app.command()
+def predict(
+    checkpoint_path: Path = typer.Option(
+        ..., "--checkpoint-path", help="Trained Lightning checkpoint."
+    ),
+    input_path: Path = typer.Option(
+        ..., "--input-path", help="Image containing a handwritten digit."
+    ),
+) -> None:
+    """Predict whether an image contains a 0, 5, or 8."""
+    model = DigitClassifier.load_from_checkpoint(
+        checkpoint_path,
+        map_location="cpu",
+    )
+    image = load_image_tensor(input_path).unsqueeze(0)
+    model.eval()
+    with torch.inference_mode():
+        probabilities = model.predict_step(image)[0].cpu()
+
+    predicted_class = int(probabilities.argmax())
+    typer.echo(f"Predicted digit: {CLASS_TO_LABEL[predicted_class]}")
+    typer.echo("Probabilities:")
+    for class_index, probability in enumerate(probabilities.tolist()):
+        typer.echo(f"  {CLASS_TO_LABEL[class_index]}: {probability:.4f}")
+
+
+if __name__ == "__main__":
+    app()
