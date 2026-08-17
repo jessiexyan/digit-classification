@@ -51,7 +51,10 @@ class DigitClassifier(L.LightningModule):
         """Return one unnormalized score (logit) per class for each image."""
         return self.classifier(self.features(images))
 
-    def _shared_step(self, batch: tuple[Tensor, Tensor]) -> tuple[Tensor, Tensor]:
+    def get_loss_and_accuracy(
+        self, batch: tuple[Tensor, Tensor]
+    ) -> tuple[Tensor, Tensor]:
+        """Calculate weighted loss and accuracy for one batch."""
         images, targets = batch
         logits = self(images)
         loss = F.cross_entropy(logits, targets, weight=self.class_weights)
@@ -62,7 +65,7 @@ class DigitClassifier(L.LightningModule):
         self, batch: tuple[Tensor, Tensor], batch_idx: int
     ) -> Tensor:
         """Calculate and record loss and accuracy for one training batch."""
-        loss, accuracy = self._shared_step(batch)
+        loss, accuracy = self.get_loss_and_accuracy(batch)
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log(
             "train_accuracy", accuracy, on_step=False, on_epoch=True, prog_bar=True
@@ -73,7 +76,7 @@ class DigitClassifier(L.LightningModule):
         self, batch: tuple[Tensor, Tensor], batch_idx: int
     ) -> None:
         """Calculate and record validation metrics without updating weights."""
-        loss, accuracy = self._shared_step(batch)
+        loss, accuracy = self.get_loss_and_accuracy(batch)
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log(
             "val_accuracy", accuracy, on_step=False, on_epoch=True, prog_bar=True
