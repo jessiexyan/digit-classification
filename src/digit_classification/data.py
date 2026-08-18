@@ -59,14 +59,14 @@ def curate_indices(
 
     for digit in DIGITS:
         candidates = [index for index, label in enumerate(labels) if label == digit]
-        count = requested[digit]
-        if len(candidates) < count:
+        total_per_digit = requested[digit]
+        if len(candidates) < total_per_digit:
             raise ValueError(
-                f"Digit {digit} has {len(candidates)} examples; {count} are required."
+                f"Digit {digit} has {len(candidates)} examples; {total_per_digit} are required."
             )
 
         digit_rng = random.Random(seed + digit)
-        selected.extend(digit_rng.sample(candidates, count))
+        selected.extend(digit_rng.sample(candidates, total_per_digit))
 
     random.Random(seed).shuffle(selected)
     return tuple(selected)
@@ -92,18 +92,18 @@ def split_curated_indices(
         raise ValueError("Evaluation and validation fractions must total less than 1.")
 
     labels = _labels_as_ints(targets)
-    by_digit: dict[int, list[int]] = {digit: [] for digit in DIGITS}
+    group_per_digit: dict[int, list[int]] = {digit: [] for digit in DIGITS}
     for index in curated_indices:
         label = labels[index]
-        if label not in by_digit:
+        if label not in group_per_digit:
             raise ValueError(f"Curated index {index} has unexpected label {label}.")
-        by_digit[label].append(index)
+        group_per_digit[label].append(index)
 
     train: list[int] = []
     validation: list[int] = []
     evaluation: list[int] = []
 
-    for digit, indices in by_digit.items():
+    for digit, indices in group_per_digit.items():
         shuffled = list(indices)
         random.Random(seed + 100 + digit).shuffle(shuffled)
         evaluation_count = round(len(shuffled) * evaluation_fraction)
@@ -178,14 +178,20 @@ class IndexedDigitDataset(Dataset):
     """View selected examples from a dataset and remap labels to 0, 1, and 2."""
 
     def __init__(self, dataset: Dataset, indices: Sequence[int]) -> None:
+        # Keep the complete MNIST dataset and expose only the selected indices.
+        # Storing indices avoids copying image data into separate split datasets.
         self.dataset = dataset
         self.indices = tuple(indices)
 
     def __len__(self) -> int:
+        # The view's size is the number of examples assigned to this split.
         return len(self.indices)
 
     def __getitem__(self, item: int) -> tuple[Any, int]:
+        # Translate this view's position into an index in the original dataset.
         image, label = self.dataset[self.indices[item]]
+
+        # Cross-entropy expects contiguous classes: digit 0 -> 0, 5 -> 1, 8 -> 2.
         return image, LABEL_TO_CLASS[int(label)]
 
 
